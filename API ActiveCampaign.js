@@ -32,10 +32,10 @@ function criarCampanhas() {
     rowData[header] = row[i];
   });
 
-  var spreadsheet_id = rowData['ID'];
-  var conta = rowData['Conta'];
-  var dataRaw = rowData['Data'];
-  var urlActive = rowData['UrlActive'];
+  var spreadsheet_id = obterCampo(rowData, 'ID');
+  var conta = obterCampo(rowData, 'Conta');
+  var dataRaw = obterCampo(rowData, 'Data');
+  var urlActive = obterCampo(rowData, 'UrlActive');
 
   if (!spreadsheet_id || !conta || !dataRaw || !urlActive) {
     Logger.log('[DEBUG] Dados incompletos para criação. Pulando linha.');
@@ -101,6 +101,28 @@ var dataFormatada = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), '
   Logger.log('[DEBUG] Processamento concluído.');
 }
 
+function obterCampo(obj, chave) {
+  if (!obj || !chave) {
+    return undefined;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(obj, chave)) {
+    return obj[chave];
+  }
+
+  var chaveNormalizada = chave.toLowerCase();
+  for (var key in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+      continue;
+    }
+    if (key && key.toLowerCase() === chaveNormalizada) {
+      return obj[key];
+    }
+  }
+
+  return undefined;
+}
+
 function criarMensagem(data, urlActive) {
   Logger.log('[DEBUG] Criando mensagem com dados: ' + JSON.stringify(data));
   
@@ -108,24 +130,25 @@ function criarMensagem(data, urlActive) {
     api_action: 'message_add',
     api_output: 'json',
     format: 'html',
-    subject: data['Assunto'],
-    fromemail: data['Sender'],
-    fromname: data['Remetente'],
-    reply2: data['Sender'],
+    subject: obterCampo(data, 'Assunto'),
+    fromemail: obterCampo(data, 'Sender'),
+    fromname: obterCampo(data, 'Remetente'),
+    reply2: obterCampo(data, 'Sender'),
     priority: 3,
     charset: 'utf-8',
     encoding: 'quoted-printable',
     htmlconstructor: 'editor',
-    html: data['HtmlEmail'],
+    html: obterCampo(data, 'HtmlEmail'),
   };
-  
-  payload['p[' + data['Lista id'] + ']'] = data['Lista id'];
+
+  var listaIdMensagem = obterCampo(data, 'Lista id');
+  payload['p[' + listaIdMensagem + ']'] = listaIdMensagem;
 
   var options = {
     method: 'post',
     contentType: 'application/x-www-form-urlencoded',
     headers: {
-      'API-TOKEN': data['KeyActive']
+      'API-TOKEN': obterCampo(data, 'KeyActive')
     },
     payload: payload,
     muteHttpExceptions: true
@@ -140,51 +163,30 @@ function criarMensagem(data, urlActive) {
 function criarCampanha(messageId, data, urlActive) {
   Logger.log('[DEBUG] Criando campanha com dados: ' + JSON.stringify(data));
 
-  var dataBruta = data['Data'];
-var horaBruta = data['Hora'];
+  var dataBruta = obterCampo(data, 'Data');
+  var horaBruta = obterCampo(data, 'Hora');
+  var timeZone = Session.getScriptTimeZone();
 
-// Conversão segura da data
-var dataObj;
-if (typeof dataBruta === 'string') {
-  if (dataBruta.includes('/')) {
-    var partes = dataBruta.split('/');
-    dataObj = new Date(partes[2], partes[1] - 1, partes[0]);
-  } else if (dataBruta.includes('-')) {
-    var partes = dataBruta.split('-');
-    dataObj = new Date(partes[0], partes[1] - 1, partes[2]);
-  } else {
-    dataObj = new Date(dataBruta);
-  }
-} else {
-  dataObj = new Date(dataBruta);
-}
+  var dataObj = normalizarData(dataBruta, timeZone);
+  var horaComponentes = normalizarHora(horaBruta, timeZone);
 
-// Conversão segura da hora
-var horaObj;
-if (typeof horaBruta === 'string') {
-  var hParts = horaBruta.split(':');
-  if (hParts.length === 2) hParts.push('00'); // se vier "11:30", vira "11:30:00"
-  horaObj = new Date();
-  horaObj.setHours(parseInt(hParts[0], 10), parseInt(hParts[1], 10), parseInt(hParts[2], 10));
-} else if (horaBruta instanceof Date) {
-  horaObj = horaBruta;
-} else {
-  horaObj = new Date(); // fallback
-}
+  var dataHoraObj = new Date(
+    dataObj.getFullYear(),
+    dataObj.getMonth(),
+    dataObj.getDate(),
+    horaComponentes.horas,
+    horaComponentes.minutos,
+    horaComponentes.segundos
+  );
 
-// Combinar data + hora
-dataObj.setHours(horaObj.getHours());
-dataObj.setMinutes(horaObj.getMinutes());
-dataObj.setSeconds(horaObj.getSeconds());
-
-var dataHora = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  var dataHora = Utilities.formatDate(dataHoraObj, timeZone, 'yyyy-MM-dd HH:mm:ss');
 
   var payload = {
     api_action: 'campaign_create',
     api_output: 'json',
     type: 'single',
-    segmentid: data['SegmentoId'],
-    name: data['Nomenclatura'],
+    segmentid: obterCampo(data, 'SegmentoId'),
+    name: obterCampo(data, 'Nomenclatura'),
     sdate: dataHora,
     status: 1,
     public: 1,
@@ -193,14 +195,15 @@ var dataHora = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'yyyy-
     textunsub: 1,
   };
   
-  payload['p[' + data['Lista id'] + ']'] = data['Lista id'];
+  var listaIdCampanha = obterCampo(data, 'Lista id');
+  payload['p[' + listaIdCampanha + ']'] = listaIdCampanha;
   payload['m[' + messageId + ']'] = 100;
 
   var options = {
     method: 'post',
     contentType: 'application/x-www-form-urlencoded',
     headers: {
-      'API-TOKEN': data['KeyActive']
+      'API-TOKEN': obterCampo(data, 'KeyActive')
     },
     payload: payload,
     muteHttpExceptions: true
@@ -210,6 +213,85 @@ var dataHora = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'yyyy-
   var result = JSON.parse(response.getContentText());
   Logger.log('[DEBUG] Resposta campanha: ' + JSON.stringify(result));
   return result;
+}
+
+function normalizarData(valor, timeZone) {
+  if (valor instanceof Date) {
+    return new Date(valor.getTime());
+  }
+
+  if (typeof valor === 'number') {
+    // Tratamento de números no formato serial do Excel/Sheets
+    var ms = Math.round((valor - 25569) * 86400 * 1000);
+    return new Date(ms);
+  }
+
+  if (typeof valor === 'string') {
+    var texto = valor.trim();
+    if (texto.includes('/')) {
+      var partesBarra = texto.split('/');
+      return new Date(partesBarra[2], partesBarra[1] - 1, partesBarra[0]);
+    }
+    if (texto.includes('-')) {
+      var partesHifen = texto.split('-');
+      return new Date(partesHifen[0], partesHifen[1] - 1, partesHifen[2]);
+    }
+    var analisada = new Date(texto);
+    if (!isNaN(analisada.getTime())) {
+      return analisada;
+    }
+  }
+
+  throw new Error('Formato de data não suportado: ' + valor);
+}
+
+function normalizarHora(valor, timeZone) {
+  if (valor instanceof Date) {
+    return {
+      horas: parseInt(Utilities.formatDate(valor, timeZone, 'HH'), 10),
+      minutos: parseInt(Utilities.formatDate(valor, timeZone, 'mm'), 10),
+      segundos: parseInt(Utilities.formatDate(valor, timeZone, 'ss'), 10)
+    };
+  }
+
+  if (typeof valor === 'number') {
+    // Valor pode representar fração de um dia
+    var totalSegundos = Math.round(valor * 24 * 60 * 60);
+    return {
+      horas: Math.floor(totalSegundos / 3600) % 24,
+      minutos: Math.floor(totalSegundos / 60) % 60,
+      segundos: totalSegundos % 60
+    };
+  }
+
+  if (typeof valor === 'string') {
+    var texto = valor.trim();
+    if (texto === '') {
+      return { horas: 0, minutos: 0, segundos: 0 };
+    }
+
+    var possivelData = new Date(texto);
+    if (!isNaN(possivelData.getTime())) {
+      return {
+        horas: parseInt(Utilities.formatDate(possivelData, timeZone, 'HH'), 10),
+        minutos: parseInt(Utilities.formatDate(possivelData, timeZone, 'mm'), 10),
+        segundos: parseInt(Utilities.formatDate(possivelData, timeZone, 'ss'), 10)
+      };
+    }
+
+    var partes = texto.split(':');
+    while (partes.length < 3) {
+      partes.push('00');
+    }
+
+    return {
+      horas: parseInt(partes[0], 10) || 0,
+      minutos: parseInt(partes[1], 10) || 0,
+      segundos: parseInt(partes[2], 10) || 0
+    };
+  }
+
+  throw new Error('Formato de hora não suportado: ' + valor);
 }
 
 function atualizarStatus(sheet, rowNumber, statusMessage) {
