@@ -141,43 +141,22 @@ function criarCampanha(messageId, data, urlActive) {
   Logger.log('[DEBUG] Criando campanha com dados: ' + JSON.stringify(data));
 
   var dataBruta = data['Data'];
-var horaBruta = data['Hora'];
+  var horaBruta = data['Hora'];
+  var timeZone = Session.getScriptTimeZone();
 
-// Conversão segura da data
-var dataObj;
-if (typeof dataBruta === 'string') {
-  if (dataBruta.includes('/')) {
-    var partes = dataBruta.split('/');
-    dataObj = new Date(partes[2], partes[1] - 1, partes[0]);
-  } else if (dataBruta.includes('-')) {
-    var partes = dataBruta.split('-');
-    dataObj = new Date(partes[0], partes[1] - 1, partes[2]);
-  } else {
-    dataObj = new Date(dataBruta);
-  }
-} else {
-  dataObj = new Date(dataBruta);
-}
+  var dataObj = normalizarData(dataBruta, timeZone);
+  var horaComponentes = normalizarHora(horaBruta, timeZone);
 
-// Conversão segura da hora
-var horaObj;
-if (typeof horaBruta === 'string') {
-  var hParts = horaBruta.split(':');
-  if (hParts.length === 2) hParts.push('00'); // se vier "11:30", vira "11:30:00"
-  horaObj = new Date();
-  horaObj.setHours(parseInt(hParts[0], 10), parseInt(hParts[1], 10), parseInt(hParts[2], 10));
-} else if (horaBruta instanceof Date) {
-  horaObj = horaBruta;
-} else {
-  horaObj = new Date(); // fallback
-}
+  var dataHoraObj = new Date(
+    dataObj.getFullYear(),
+    dataObj.getMonth(),
+    dataObj.getDate(),
+    horaComponentes.horas,
+    horaComponentes.minutos,
+    horaComponentes.segundos
+  );
 
-// Combinar data + hora
-dataObj.setHours(horaObj.getHours());
-dataObj.setMinutes(horaObj.getMinutes());
-dataObj.setSeconds(horaObj.getSeconds());
-
-var dataHora = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  var dataHora = Utilities.formatDate(dataHoraObj, timeZone, 'yyyy-MM-dd HH:mm:ss');
 
   var payload = {
     api_action: 'campaign_create',
@@ -210,6 +189,76 @@ var dataHora = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'yyyy-
   var result = JSON.parse(response.getContentText());
   Logger.log('[DEBUG] Resposta campanha: ' + JSON.stringify(result));
   return result;
+}
+
+function normalizarData(valor, timeZone) {
+  if (valor instanceof Date) {
+    return new Date(valor.getTime());
+  }
+
+  if (typeof valor === 'number') {
+    // Tratamento de números no formato serial do Excel/Sheets
+    var ms = Math.round((valor - 25569) * 86400 * 1000);
+    return new Date(ms);
+  }
+
+  if (typeof valor === 'string') {
+    var texto = valor.trim();
+    if (texto.includes('/')) {
+      var partesBarra = texto.split('/');
+      return new Date(partesBarra[2], partesBarra[1] - 1, partesBarra[0]);
+    }
+    if (texto.includes('-')) {
+      var partesHifen = texto.split('-');
+      return new Date(partesHifen[0], partesHifen[1] - 1, partesHifen[2]);
+    }
+    var analisada = new Date(texto);
+    if (!isNaN(analisada.getTime())) {
+      return analisada;
+    }
+  }
+
+  throw new Error('Formato de data não suportado: ' + valor);
+}
+
+function normalizarHora(valor, timeZone) {
+  if (valor instanceof Date) {
+    return {
+      horas: parseInt(Utilities.formatDate(valor, timeZone, 'HH'), 10),
+      minutos: parseInt(Utilities.formatDate(valor, timeZone, 'mm'), 10),
+      segundos: parseInt(Utilities.formatDate(valor, timeZone, 'ss'), 10)
+    };
+  }
+
+  if (typeof valor === 'number') {
+    // Valor pode representar fração de um dia
+    var totalSegundos = Math.round(valor * 24 * 60 * 60);
+    return {
+      horas: Math.floor(totalSegundos / 3600) % 24,
+      minutos: Math.floor(totalSegundos / 60) % 60,
+      segundos: totalSegundos % 60
+    };
+  }
+
+  if (typeof valor === 'string') {
+    var texto = valor.trim();
+    if (texto === '') {
+      return { horas: 0, minutos: 0, segundos: 0 };
+    }
+
+    var partes = texto.split(':');
+    while (partes.length < 3) {
+      partes.push('00');
+    }
+
+    return {
+      horas: parseInt(partes[0], 10) || 0,
+      minutos: parseInt(partes[1], 10) || 0,
+      segundos: parseInt(partes[2], 10) || 0
+    };
+  }
+
+  throw new Error('Formato de hora não suportado: ' + valor);
 }
 
 function atualizarStatus(sheet, rowNumber, statusMessage) {
