@@ -32,10 +32,10 @@ function criarCampanhas() {
     rowData[header] = row[i];
   });
 
-  var spreadsheet_id = rowData['ID'];
-  var conta = rowData['Conta'];
-  var dataRaw = rowData['Data'];
-  var urlActive = rowData['UrlActive'];
+  var spreadsheet_id = obterCampo(rowData, 'ID');
+  var conta = obterCampo(rowData, 'Conta');
+  var dataRaw = obterCampo(rowData, 'Data');
+  var urlActive = obterCampo(rowData, 'UrlActive');
 
   if (!spreadsheet_id || !conta || !dataRaw || !urlActive) {
     Logger.log('[DEBUG] Dados incompletos para criação. Pulando linha.');
@@ -101,6 +101,28 @@ var dataFormatada = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), '
   Logger.log('[DEBUG] Processamento concluído.');
 }
 
+function obterCampo(obj, chave) {
+  if (!obj || !chave) {
+    return undefined;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(obj, chave)) {
+    return obj[chave];
+  }
+
+  var chaveNormalizada = chave.toLowerCase();
+  for (var key in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+      continue;
+    }
+    if (key && key.toLowerCase() === chaveNormalizada) {
+      return obj[key];
+    }
+  }
+
+  return undefined;
+}
+
 function criarMensagem(data, urlActive) {
   Logger.log('[DEBUG] Criando mensagem com dados: ' + JSON.stringify(data));
   
@@ -108,24 +130,25 @@ function criarMensagem(data, urlActive) {
     api_action: 'message_add',
     api_output: 'json',
     format: 'html',
-    subject: data['Assunto'],
-    fromemail: data['Sender'],
-    fromname: data['Remetente'],
-    reply2: data['Sender'],
+    subject: obterCampo(data, 'Assunto'),
+    fromemail: obterCampo(data, 'Sender'),
+    fromname: obterCampo(data, 'Remetente'),
+    reply2: obterCampo(data, 'Sender'),
     priority: 3,
     charset: 'utf-8',
     encoding: 'quoted-printable',
     htmlconstructor: 'editor',
-    html: data['HtmlEmail'],
+    html: obterCampo(data, 'HtmlEmail'),
   };
-  
-  payload['p[' + data['Lista id'] + ']'] = data['Lista id'];
+
+  var listaIdMensagem = obterCampo(data, 'Lista id');
+  payload['p[' + listaIdMensagem + ']'] = listaIdMensagem;
 
   var options = {
     method: 'post',
     contentType: 'application/x-www-form-urlencoded',
     headers: {
-      'API-TOKEN': data['KeyActive']
+      'API-TOKEN': obterCampo(data, 'KeyActive')
     },
     payload: payload,
     muteHttpExceptions: true
@@ -140,8 +163,8 @@ function criarMensagem(data, urlActive) {
 function criarCampanha(messageId, data, urlActive) {
   Logger.log('[DEBUG] Criando campanha com dados: ' + JSON.stringify(data));
 
-  var dataBruta = data['Data'];
-  var horaBruta = data['Hora'];
+  var dataBruta = obterCampo(data, 'Data');
+  var horaBruta = obterCampo(data, 'Hora');
   var timeZone = Session.getScriptTimeZone();
 
   var dataObj = normalizarData(dataBruta, timeZone);
@@ -162,8 +185,8 @@ function criarCampanha(messageId, data, urlActive) {
     api_action: 'campaign_create',
     api_output: 'json',
     type: 'single',
-    segmentid: data['SegmentoId'],
-    name: data['Nomenclatura'],
+    segmentid: obterCampo(data, 'SegmentoId'),
+    name: obterCampo(data, 'Nomenclatura'),
     sdate: dataHora,
     status: 1,
     public: 1,
@@ -172,14 +195,15 @@ function criarCampanha(messageId, data, urlActive) {
     textunsub: 1,
   };
   
-  payload['p[' + data['Lista id'] + ']'] = data['Lista id'];
+  var listaIdCampanha = obterCampo(data, 'Lista id');
+  payload['p[' + listaIdCampanha + ']'] = listaIdCampanha;
   payload['m[' + messageId + ']'] = 100;
 
   var options = {
     method: 'post',
     contentType: 'application/x-www-form-urlencoded',
     headers: {
-      'API-TOKEN': data['KeyActive']
+      'API-TOKEN': obterCampo(data, 'KeyActive')
     },
     payload: payload,
     muteHttpExceptions: true
@@ -244,6 +268,15 @@ function normalizarHora(valor, timeZone) {
     var texto = valor.trim();
     if (texto === '') {
       return { horas: 0, minutos: 0, segundos: 0 };
+    }
+
+    var possivelData = new Date(texto);
+    if (!isNaN(possivelData.getTime())) {
+      return {
+        horas: parseInt(Utilities.formatDate(possivelData, timeZone, 'HH'), 10),
+        minutos: parseInt(Utilities.formatDate(possivelData, timeZone, 'mm'), 10),
+        segundos: parseInt(Utilities.formatDate(possivelData, timeZone, 'ss'), 10)
+      };
     }
 
     var partes = texto.split(':');
